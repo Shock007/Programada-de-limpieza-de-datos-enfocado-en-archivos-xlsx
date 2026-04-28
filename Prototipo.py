@@ -78,8 +78,22 @@ class DataCleanerApp:
         content.pack(fill=tk.BOTH, expand=True)
         content.grid_rowconfigure(0, weight=1)
         content.grid_columnconfigure(0, weight=1)
+
         self._build_table(content)
-        self._build_edit_panel(content)
+
+        # ── Notebook derecho: "Editar" | "Automatización" ─────────────────
+        self.notebook = ttk.Notebook(content)
+        self.notebook.grid(row=0, column=1, sticky=tk.NSEW, padx=4)
+
+        # Pestaña Editar
+        tab_edit = ttk.Frame(self.notebook, padding=0)
+        self.notebook.add(tab_edit, text="  Editar  ")
+        self._build_edit_panel(tab_edit)
+
+        # Pestaña Automatización
+        tab_auto = ttk.Frame(self.notebook, padding=0)
+        self.notebook.add(tab_auto, text="  Automatización  ")
+        self._build_auto_panel(tab_auto)
 
     # ── Tabla ─────────────────────────────────────────────────────────────────
 
@@ -115,7 +129,7 @@ class DataCleanerApp:
 
     def _build_edit_panel(self, parent: ttk.Frame) -> None:
         panel = ttk.LabelFrame(parent, text="Editar", padding=12)
-        panel.grid(row=0, column=1, sticky=tk.NSEW, padx=4)
+        panel.pack(fill=tk.BOTH, expand=True, padx=4, pady=4)
 
         self.cell_info_label = ttk.Label(
             panel, text="Ninguna celda seleccionada",
@@ -181,6 +195,178 @@ class DataCleanerApp:
         ttk.Label(parent, text=text,
                   font=("TkDefaultFont", 8, "bold")).pack(anchor=tk.W, pady=(4, 2))
 
+    # ══════════════════════════════════════════════════════════════════════════
+    #  PESTAÑA AUTOMATIZACIÓN
+    # ══════════════════════════════════════════════════════════════════════════
+
+    def _build_auto_panel(self, parent: ttk.Frame) -> None:
+        """
+        Construye el panel de Automatización con:
+          • Resumen de celdas vacías individuales (posición estilo Excel: A1, B3…)
+          • Resumen de columnas completamente vacías
+          • Botón para refrescar el análisis manualmente
+        """
+        panel = ttk.LabelFrame(parent, text="Automatización", padding=12)
+        panel.pack(fill=tk.BOTH, expand=True, padx=4, pady=4)
+
+        # ── Totales ─────────────────────────────────────────────────────────
+        totals_frame = ttk.Frame(panel)
+        totals_frame.pack(fill=tk.X, pady=(0, 8))
+
+        self._section_label(totals_frame, "Resumen general")
+
+        self.lbl_total_empty_cells = ttk.Label(
+            totals_frame, text="Celdas vacías: —",
+            foreground="#c0392b", font=("TkDefaultFont", 9, "bold"))
+        self.lbl_total_empty_cells.pack(anchor=tk.W, pady=1)
+
+        self.lbl_total_empty_cols = ttk.Label(
+            totals_frame, text="Columnas vacías: —",
+            foreground="#8e44ad", font=("TkDefaultFont", 9, "bold"))
+        self.lbl_total_empty_cols.pack(anchor=tk.W, pady=1)
+
+        ttk.Separator(panel, orient=tk.HORIZONTAL).pack(fill=tk.X, pady=8)
+
+        # ── Detalle de celdas vacías ─────────────────────────────────────────
+        self._section_label(panel, "Celdas vacías por posición")
+
+        cell_frame = ttk.Frame(panel)
+        cell_frame.pack(fill=tk.BOTH, expand=True, pady=(4, 8))
+        cell_frame.grid_rowconfigure(0, weight=1)
+        cell_frame.grid_columnconfigure(0, weight=1)
+
+        cell_vsb = ttk.Scrollbar(cell_frame, orient=tk.VERTICAL)
+        self.auto_cell_text = tk.Text(
+            cell_frame, height=6, wrap=tk.WORD, state=tk.DISABLED,
+            relief=tk.FLAT, bg="#f8f9fa", font=("TkDefaultFont", 9),
+            yscrollcommand=cell_vsb.set)
+        cell_vsb.config(command=self.auto_cell_text.yview)
+        self.auto_cell_text.grid(row=0, column=0, sticky=tk.NSEW)
+        cell_vsb.grid(row=0, column=1, sticky=tk.NS)
+
+        ttk.Separator(panel, orient=tk.HORIZONTAL).pack(fill=tk.X, pady=8)
+
+        # ── Detalle de columnas vacías ───────────────────────────────────────
+        self._section_label(panel, "Columnas completamente vacías")
+
+        col_frame = ttk.Frame(panel)
+        col_frame.pack(fill=tk.BOTH, expand=True, pady=(4, 8))
+        col_frame.grid_rowconfigure(0, weight=1)
+        col_frame.grid_columnconfigure(0, weight=1)
+
+        col_vsb = ttk.Scrollbar(col_frame, orient=tk.VERTICAL)
+        self.auto_col_text = tk.Text(
+            col_frame, height=5, wrap=tk.WORD, state=tk.DISABLED,
+            relief=tk.FLAT, bg="#f8f9fa", font=("TkDefaultFont", 9),
+            yscrollcommand=col_vsb.set)
+        col_vsb.config(command=self.auto_col_text.yview)
+        self.auto_col_text.grid(row=0, column=0, sticky=tk.NSEW)
+        col_vsb.grid(row=0, column=1, sticky=tk.NS)
+
+        # ── Botón de análisis ────────────────────────────────────────────────
+        ttk.Button(
+            panel, text="🔍 Analizar vacíos",
+            command=self._refresh_auto_panel
+        ).pack(fill=tk.X, pady=(4, 0))
+
+    def _refresh_auto_panel(self) -> None:
+        """
+        Analiza el DataFrame en busca de celdas y columnas vacías y
+        actualiza los widgets del panel de Automatización.
+
+        Notación de posición:  letra(s) de columna Excel + número de fila 1-based
+        Ejemplo:  columna índice 0 → A,  fila DataFrame índice 3 → fila 4 en Excel.
+        """
+        from openpyxl.utils import get_column_letter
+
+        # ── Texto por defecto cuando no hay archivo ──────────────────────────
+        def _set_text(widget: tk.Text, msg: str) -> None:
+            widget.config(state=tk.NORMAL)
+            widget.delete("1.0", tk.END)
+            widget.insert(tk.END, msg)
+            widget.config(state=tk.DISABLED)
+
+        if self.dataframe is None:
+            _set_text(self.auto_cell_text, "Carga un archivo para analizar.")
+            _set_text(self.auto_col_text,  "Carga un archivo para analizar.")
+            self.lbl_total_empty_cells.config(text="Celdas vacías: —")
+            self.lbl_total_empty_cols.config(text="Columnas vacías: —")
+            return
+
+        df   = self.dataframe
+        cols = list(df.columns)
+
+        # ── Detección de vacíos ──────────────────────────────────────────────
+        # Una celda está vacía si es NaN o es string de solo espacios
+        def _is_empty(val) -> bool:
+            if pd.isna(val):
+                return True
+            if isinstance(val, str) and val.strip() == "":
+                return True
+            return False
+
+        # Columnas completamente vacías
+        empty_cols = [
+            col for col in cols
+            if df[col].apply(_is_empty).all()
+        ]
+
+        # Celdas vacías individuales (en columnas que NO son completamente vacías)
+        empty_cells: list[str] = []
+        for col_idx, col in enumerate(cols):
+            col_letter = get_column_letter(col_idx + 1)   # 1-based → A, B, C…
+            for df_row_idx in df.index:
+                val = df.at[df_row_idx, col]
+                if _is_empty(val):
+                    # Fila en notación Excel: encabezado es fila 1, datos desde fila 2
+                    excel_row = int(df_row_idx) + 2
+                    empty_cells.append(f"{col_letter}{excel_row}")
+
+        # ── Actualizar totales ───────────────────────────────────────────────
+        self.lbl_total_empty_cells.config(
+            text=f"Celdas vacías: {len(empty_cells)}")
+        self.lbl_total_empty_cols.config(
+            text=f"Columnas vacías: {len(empty_cols)}")
+
+        # ── Texto de celdas vacías ───────────────────────────────────────────
+        if not empty_cells:
+            cell_msg = "✔ No se encontraron celdas vacías en el archivo."
+        else:
+            # Agrupar por columna para un mensaje más legible
+            from collections import defaultdict
+            by_col: dict[str, list[str]] = defaultdict(list)
+            for ref in empty_cells:
+                # Separar letra(s) de número
+                letter = "".join(c for c in ref if c.isalpha())
+                by_col[letter].append(ref)
+
+            lines = []
+            for letter, refs in by_col.items():
+                col_idx   = ord(letter) - ord("A") if len(letter) == 1 \
+                            else (ord(letter[0]) - ord("A") + 1) * 26 + (ord(letter[1]) - ord("A"))
+                col_name  = cols[col_idx] if col_idx < len(cols) else letter
+                positions = ", ".join(refs)
+                lines.append(
+                    f'• Columna "{col_name}": '
+                    f'{"celda vacía en" if len(refs) == 1 else "celdas vacías en"} '
+                    f'{positions}.'
+                )
+            cell_msg = "\n".join(lines)
+
+        _set_text(self.auto_cell_text, cell_msg)
+
+        # ── Texto de columnas vacías ─────────────────────────────────────────
+        if not empty_cols:
+            col_msg = "✔ Todas las columnas contienen al menos un dato."
+        else:
+            lines = [
+                f'• La columna "{col}" no contiene ningún dato.'
+                for col in empty_cols
+            ]
+            col_msg = "\n".join(lines)
+
+        _set_text(self.auto_col_text, col_msg)
+
     def _cast_value(self, col_index: int, raw: str):
         """
         Convierte el string 'raw' al dtype original de la columna en el DataFrame.
@@ -225,6 +411,7 @@ class DataCleanerApp:
             self.file_label.config(text=f"Cargado: {os.path.basename(path)}")
             self.save_btn.config(state=tk.NORMAL)
             messagebox.showinfo("Éxito", "Archivo cargado correctamente.")
+            self._refresh_auto_panel()   # actualizar pestaña Automatización
         except Exception as exc:
             messagebox.showerror("Error", f"No se pudo cargar el archivo:\n{exc}")
 
