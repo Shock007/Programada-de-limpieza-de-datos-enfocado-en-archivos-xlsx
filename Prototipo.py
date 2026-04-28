@@ -181,6 +181,28 @@ class DataCleanerApp:
         ttk.Label(parent, text=text,
                   font=("TkDefaultFont", 8, "bold")).pack(anchor=tk.W, pady=(4, 2))
 
+    def _cast_value(self, col_index: int, raw: str):
+        """
+        Convierte el string 'raw' al dtype original de la columna en el DataFrame.
+        Si la conversión falla (e.g. el usuario escribió texto en una col numérica),
+        retorna el string tal cual para que pandas lo convierta a object.
+        """
+        col_name = self.dataframe.columns[col_index]
+        dtype    = self.dataframe[col_name].dtype
+
+        try:
+            if pd.api.types.is_integer_dtype(dtype):
+                # Acepta "9", "9.0", "9,0" → int
+                return int(float(raw.replace(",", ".")))
+            elif pd.api.types.is_float_dtype(dtype):
+                return float(raw.replace(",", "."))
+            elif pd.api.types.is_bool_dtype(dtype):
+                return raw.strip().lower() in ("true", "1", "sí", "si", "yes")
+            else:
+                return raw          # string, datetime, etc. → sin conversión
+        except (ValueError, AttributeError):
+            return raw              # fallback: dejar como string
+
     # ══════════════════════════════════════════════════════════════════════════
     #  CARGA Y VISUALIZACIÓN
     # ══════════════════════════════════════════════════════════════════════════
@@ -373,7 +395,7 @@ class DataCleanerApp:
         entry.focus()
 
         def _save():
-            new_val = entry.get()
+            new_val = self._cast_value(col_index, entry.get())
             self.dataframe.at[row_index, col_name] = new_val
             self.edited_cells[(row_index, col_index)] = new_val
             self._display_data()
@@ -410,7 +432,7 @@ class DataCleanerApp:
             self.cell_formats[(row_index, col_index)] = fmt
 
             col_name  = self.dataframe.columns[col_index]
-            new_value = self.value_entry.get()
+            new_value = self._cast_value(col_index, self.value_entry.get())
             self.dataframe.at[row_index, col_name] = new_value
             self.edited_cells[(row_index, col_index)] = new_value
 
