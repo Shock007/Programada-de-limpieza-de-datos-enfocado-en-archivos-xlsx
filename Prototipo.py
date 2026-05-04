@@ -45,6 +45,7 @@ class DataCleanerApp:
         self.selected_cell:   tuple | None        = None  # (row_idx, col_idx)
         self.selected_column: int   | None        = None  # col_idx (columna entera)
         self.row_id_map:      dict                = {}    # item_id → df row index
+        self._exact_dup_col_pairs: list           = []    # [(orig, copia), …]
 
         self._build_ui()
 
@@ -388,6 +389,30 @@ class DataCleanerApp:
 
         ttk.Separator(sec_dup, orient=tk.HORIZONTAL).pack(fill=tk.X, pady=6)
 
+        # ── Posición de columnas duplicadas ──────────────────────────────────
+        self._section_label(sec_dup, "Posición de columnas duplicadas")
+
+        col_pos_dup_frame = ttk.Frame(sec_dup)
+        col_pos_dup_frame.pack(fill=tk.X, pady=(2, 4))
+        col_pos_dup_frame.grid_rowconfigure(0, weight=1)
+        col_pos_dup_frame.grid_columnconfigure(0, weight=1)
+
+        col_pos_dup_vsb = ttk.Scrollbar(col_pos_dup_frame, orient=tk.VERTICAL)
+        self.auto_col_pos_dup_text = tk.Text(
+            col_pos_dup_frame, height=4, wrap=tk.WORD, state=tk.DISABLED,
+            relief=tk.FLAT, bg="#f0f8ff", font=("TkDefaultFont", 9),
+            yscrollcommand=col_pos_dup_vsb.set)
+        col_pos_dup_vsb.config(command=self.auto_col_pos_dup_text.yview)
+        self.auto_col_pos_dup_text.grid(row=0, column=0, sticky=tk.NSEW)
+        col_pos_dup_vsb.grid(row=0, column=1, sticky=tk.NS)
+
+        self.btn_del_dup_cols = ttk.Button(
+            sec_dup, text="🗑 Eliminar columnas duplicadas",
+            command=self._delete_duplicate_columns, state=tk.DISABLED)
+        self.btn_del_dup_cols.pack(fill=tk.X, pady=(2, 6))
+
+        ttk.Separator(sec_dup, orient=tk.HORIZONTAL).pack(fill=tk.X, pady=6)
+
         ttk.Button(
             sec_dup, text="🔍 Analizar duplicados",
             command=self._refresh_duplicates
@@ -585,12 +610,13 @@ class DataCleanerApp:
         # ── Sin archivo ──────────────────────────────────────────────────────
         if self.dataframe is None:
             for w in (self.auto_dup_text, self.auto_val_dup_text,
-                      self.auto_col_dup_text):
+                      self.auto_col_dup_text, self.auto_col_pos_dup_text):
                 _set_text(w, "Carga un archivo para analizar.")
             self.lbl_total_dups.config(text="Filas duplicadas: —")
             self.lbl_unique_rows.config(text="Filas únicas: —")
             self.lbl_total_dup_vals.config(text="Valores duplicados: —")
             self.btn_del_dups.config(state=tk.DISABLED)
+            self.btn_del_dup_cols.config(state=tk.DISABLED)
             return
 
         df   = self.dataframe
@@ -679,7 +705,7 @@ class DataCleanerApp:
                 possibly_dup_count = n_internal_dups
                 possibly_dup_col   = col
 
-        # ── Construir mensaje ─────────────────────────────────────────────────
+        # ── Construir mensaje de análisis ─────────────────────────────────────
         col_lines: list[str] = []
 
         if not exact_dup_pairs and possibly_dup_col is None:
@@ -703,6 +729,37 @@ class DataCleanerApp:
                     "las que no tienen copia exacta.)")
 
         _set_text(self.auto_col_dup_text, "\n".join(col_lines))
+
+        # ── Posición de columnas duplicadas y botón de eliminación ────────────
+        # Guardar los pares exactos en el estado para que el botón pueda usarlos
+        self._exact_dup_col_pairs = exact_dup_pairs   # [(original, copia), …]
+
+        if not exact_dup_pairs:
+            _set_text(self.auto_col_pos_dup_text,
+                      "✔ No hay columnas exactamente duplicadas.")
+            self.btn_del_dup_cols.config(state=tk.DISABLED)
+        else:
+            from openpyxl.utils import get_column_letter
+            col_list  = list(df.columns)
+            pos_lines: list[str] = []
+            cols_to_remove: list[str] = []
+
+            for col_a, col_b in exact_dup_pairs:
+                idx_a = col_list.index(col_a) + 1   # 1-based → letra Excel
+                idx_b = col_list.index(col_b) + 1
+                let_a = get_column_letter(idx_a)
+                let_b = get_column_letter(idx_b)
+                pos_lines.append(
+                    f'• "{col_b}" (columna {let_b})  es copia de  '
+                    f'"{col_a}" (columna {let_a})  → se eliminará "{col_b}".')
+                cols_to_remove.append(col_b)
+
+            n_copies = len(cols_to_remove)
+            pos_lines.insert(0,
+                f"Se detectaron {n_copies} columna(s) duplicada(s) "
+                f"(se conservará la primera de cada par):\n")
+            _set_text(self.auto_col_pos_dup_text, "\n".join(pos_lines))
+            self.btn_del_dup_cols.config(state=tk.NORMAL)
 
     def _delete_duplicates(self) -> None:
         """Elimina todas las filas duplicadas conservando la primera ocurrencia."""
@@ -737,6 +794,52 @@ class DataCleanerApp:
         messagebox.showinfo(
             "Eliminadas",
             f"{n_dups} fila(s) duplicada(s) eliminadas correctamente.")
+
+    def _delete_duplicate_columns(self) -> None:
+        """
+        Elimina las columnas que son copias exactas de otra columna anterior,
+        conservando siempre la primera ocurrencia de cada par.
+        Los pares se calcularon en _refresh_duplicates y se almacenaron en
+        self._exact_dup_col_pairs.
+        """
+        if self.dataframe is None:
+            return
+
+        pairs = getattr(self, "_exact_dup_col_pairs", [])
+        if not pairs:
+            messagebox.showinfo("Sin cambios",
+                                "No hay columnas duplicadas exactas detectadas.\n"
+                                "Ejecuta 'Analizar duplicados' primero.")
+            return
+
+        # Las columnas a eliminar son las copias (segundo elemento de cada par)
+        cols_to_drop = [col_b for _, col_b in pairs]
+        # Eliminar duplicados de la lista (por si una columna apareció en varios pares)
+        cols_to_drop = list(dict.fromkeys(cols_to_drop))
+
+        names = "\n".join(f'  • "{c}"' for c in cols_to_drop)
+        confirm = messagebox.askyesno(
+            "Confirmar eliminación",
+            f"Se eliminarán {len(cols_to_drop)} columna(s) duplicada(s) "
+            f"(se conserva la columna original de cada par):\n\n{names}\n\n"
+            "¿Deseas continuar?"
+        )
+        if not confirm:
+            return
+
+        self.dataframe.drop(columns=cols_to_drop, inplace=True)
+        self._exact_dup_col_pairs = []
+        self.cell_formats    = {}
+        self.edited_cells    = {}
+        self.selected_cell   = None
+        self.selected_column = None
+
+        self._display_data()
+        self._refresh_duplicates()
+        self._refresh_auto_panel()
+        messagebox.showinfo(
+            "Eliminadas",
+            f"{len(cols_to_drop)} columna(s) duplicada(s) eliminadas correctamente.")
 
     def _cast_value(self, col_index: int, raw: str):
         """
