@@ -306,7 +306,7 @@ class DataCleanerApp:
         sec_dup = ttk.LabelFrame(inner, text="Registros duplicados", padding=10)
         sec_dup.pack(fill=tk.X, padx=6, pady=(4, 8))
 
-        # ── Totales ──────────────────────────────────────────────────────────
+        # ── Resumen general ──────────────────────────────────────────────────
         self._section_label(sec_dup, "Resumen general")
 
         self.lbl_total_dups = ttk.Label(
@@ -319,30 +319,72 @@ class DataCleanerApp:
             foreground="#27ae60", font=("TkDefaultFont", 9, "bold"))
         self.lbl_unique_rows.pack(anchor=tk.W, pady=1)
 
+        self.lbl_total_dup_vals = ttk.Label(
+            sec_dup, text="Valores duplicados: —",
+            foreground="#c0392b", font=("TkDefaultFont", 9, "bold"))
+        self.lbl_total_dup_vals.pack(anchor=tk.W, pady=1)
+
         ttk.Separator(sec_dup, orient=tk.HORIZONTAL).pack(fill=tk.X, pady=6)
 
-        # ── Detalle duplicados ────────────────────────────────────────────────
+        # ── Filas duplicadas ─────────────────────────────────────────────────
         self._section_label(sec_dup, "Posición de filas duplicadas")
 
         dup_frame = ttk.Frame(sec_dup)
-        dup_frame.pack(fill=tk.X, pady=(2, 6))
+        dup_frame.pack(fill=tk.X, pady=(2, 4))
         dup_frame.grid_rowconfigure(0, weight=1)
         dup_frame.grid_columnconfigure(0, weight=1)
 
         dup_vsb = ttk.Scrollbar(dup_frame, orient=tk.VERTICAL)
         self.auto_dup_text = tk.Text(
-            dup_frame, height=5, wrap=tk.WORD, state=tk.DISABLED,
+            dup_frame, height=4, wrap=tk.WORD, state=tk.DISABLED,
             relief=tk.FLAT, bg="#fff8f0", font=("TkDefaultFont", 9),
             yscrollcommand=dup_vsb.set)
         dup_vsb.config(command=self.auto_dup_text.yview)
         self.auto_dup_text.grid(row=0, column=0, sticky=tk.NSEW)
         dup_vsb.grid(row=0, column=1, sticky=tk.NS)
 
-        # Botones duplicados
         self.btn_del_dups = ttk.Button(
             sec_dup, text="🗑 Eliminar filas duplicadas",
             command=self._delete_duplicates, state=tk.DISABLED)
         self.btn_del_dups.pack(fill=tk.X, pady=(2, 6))
+
+        ttk.Separator(sec_dup, orient=tk.HORIZONTAL).pack(fill=tk.X, pady=6)
+
+        # ── Valores duplicados en el archivo ─────────────────────────────────
+        self._section_label(sec_dup, "Valores duplicados en el archivo")
+
+        val_dup_frame = ttk.Frame(sec_dup)
+        val_dup_frame.pack(fill=tk.X, pady=(2, 6))
+        val_dup_frame.grid_rowconfigure(0, weight=1)
+        val_dup_frame.grid_columnconfigure(0, weight=1)
+
+        val_dup_vsb = ttk.Scrollbar(val_dup_frame, orient=tk.VERTICAL)
+        self.auto_val_dup_text = tk.Text(
+            val_dup_frame, height=5, wrap=tk.WORD, state=tk.DISABLED,
+            relief=tk.FLAT, bg="#fef9e7", font=("TkDefaultFont", 9),
+            yscrollcommand=val_dup_vsb.set)
+        val_dup_vsb.config(command=self.auto_val_dup_text.yview)
+        self.auto_val_dup_text.grid(row=0, column=0, sticky=tk.NSEW)
+        val_dup_vsb.grid(row=0, column=1, sticky=tk.NS)
+
+        ttk.Separator(sec_dup, orient=tk.HORIZONTAL).pack(fill=tk.X, pady=6)
+
+        # ── Análisis de columnas duplicadas ──────────────────────────────────
+        self._section_label(sec_dup, "Análisis de columnas duplicadas")
+
+        col_dup_frame = ttk.Frame(sec_dup)
+        col_dup_frame.pack(fill=tk.X, pady=(2, 6))
+        col_dup_frame.grid_rowconfigure(0, weight=1)
+        col_dup_frame.grid_columnconfigure(0, weight=1)
+
+        col_dup_vsb = ttk.Scrollbar(col_dup_frame, orient=tk.VERTICAL)
+        self.auto_col_dup_text = tk.Text(
+            col_dup_frame, height=5, wrap=tk.WORD, state=tk.DISABLED,
+            relief=tk.FLAT, bg="#eaf4fb", font=("TkDefaultFont", 9),
+            yscrollcommand=col_dup_vsb.set)
+        col_dup_vsb.config(command=self.auto_col_dup_text.yview)
+        self.auto_col_dup_text.grid(row=0, column=0, sticky=tk.NSEW)
+        col_dup_vsb.grid(row=0, column=1, sticky=tk.NS)
 
         ttk.Separator(sec_dup, orient=tk.HORIZONTAL).pack(fill=tk.X, pady=6)
 
@@ -528,27 +570,39 @@ class DataCleanerApp:
     # ── Duplicados ────────────────────────────────────────────────────────────
 
     def _refresh_duplicates(self) -> None:
-        """Detecta filas duplicadas y actualiza el cuadro de texto de duplicados."""
+        """
+        Análisis de duplicados en tres niveles:
+          1. Filas completas duplicadas (toda la fila idéntica a otra).
+          2. Valores duplicados en el archivo (valores que aparecen >1 vez).
+          3. Columnas duplicadas o posiblemente duplicadas.
+        """
         def _set_text(widget: tk.Text, msg: str) -> None:
             widget.config(state=tk.NORMAL)
             widget.delete("1.0", tk.END)
             widget.insert(tk.END, msg)
             widget.config(state=tk.DISABLED)
 
+        # ── Sin archivo ──────────────────────────────────────────────────────
         if self.dataframe is None:
-            _set_text(self.auto_dup_text, "Carga un archivo para analizar.")
+            for w in (self.auto_dup_text, self.auto_val_dup_text,
+                      self.auto_col_dup_text):
+                _set_text(w, "Carga un archivo para analizar.")
             self.lbl_total_dups.config(text="Filas duplicadas: —")
             self.lbl_unique_rows.config(text="Filas únicas: —")
+            self.lbl_total_dup_vals.config(text="Valores duplicados: —")
             self.btn_del_dups.config(state=tk.DISABLED)
             return
 
-        df = self.dataframe
+        df   = self.dataframe
+        cols = list(df.columns)
 
-        # Una fila es duplicada si existe OTRA fila ANTERIOR idéntica
-        dup_mask   = df.duplicated(keep="first")
+        # ════════════════════════════════════════════════════════════════════
+        # NIVEL 1 — Filas completas duplicadas
+        # ════════════════════════════════════════════════════════════════════
+        dup_mask    = df.duplicated(keep="first")
         dup_indices = df.index[dup_mask].tolist()
-        n_dups     = len(dup_indices)
-        n_unique   = len(df) - n_dups
+        n_dups      = len(dup_indices)
+        n_unique    = len(df) - n_dups
 
         self.lbl_total_dups.config(text=f"Filas duplicadas: {n_dups}")
         self.lbl_unique_rows.config(text=f"Filas únicas: {n_unique}")
@@ -556,18 +610,99 @@ class DataCleanerApp:
 
         if n_dups == 0:
             _set_text(self.auto_dup_text,
-                      "✔ No se encontraron filas duplicadas en el archivo.")
-            return
+                      "✔ No se encontraron filas completamente duplicadas.")
+        else:
+            MAX_ROWS = 150
+            refs = [f"Fila {int(i) + 2}" for i in dup_indices[:MAX_ROWS]]
+            msg  = f"Las siguientes {n_dups} fila(s) son idénticas a otra anterior:\n"
+            msg += ", ".join(refs)
+            if n_dups > MAX_ROWS:
+                msg += f"\n… y {n_dups - MAX_ROWS} más."
+            _set_text(self.auto_dup_text, msg)
 
-        # Mostrar las primeras 200 referencias para no saturar la UI
-        MAX_SHOW = 200
-        refs = [f"Fila {int(i) + 2}" for i in dup_indices[:MAX_SHOW]]
-        msg  = "Las siguientes filas son duplicadas de otra anterior:\n"
-        msg += ", ".join(refs)
-        if n_dups > MAX_SHOW:
-            msg += f"\n… y {n_dups - MAX_SHOW} más."
+        # ════════════════════════════════════════════════════════════════════
+        # NIVEL 2 — Valores duplicados en el archivo
+        # ════════════════════════════════════════════════════════════════════
+        # Aplanar todos los valores en una sola Serie, contar frecuencias
+        all_values = pd.Series(
+            df.values.flatten()
+        ).dropna().astype(str).str.strip()
+        # Excluir strings vacíos
+        all_values = all_values[all_values != ""]
 
-        _set_text(self.auto_dup_text, msg)
+        freq = all_values.value_counts()
+        dup_vals = freq[freq > 1]           # valores que aparecen más de una vez
+
+        self.lbl_total_dup_vals.config(
+            text=f"Valores duplicados: {len(dup_vals)}")
+
+        if dup_vals.empty:
+            _set_text(self.auto_val_dup_text,
+                      "✔ No se encontraron valores duplicados en el archivo.")
+        else:
+            MAX_VALS = 60
+            lines = []
+            for val, count in dup_vals.head(MAX_VALS).items():
+                lines.append(f'• "{val}"  →  aparece {count} veces')
+            msg = "\n".join(lines)
+            if len(dup_vals) > MAX_VALS:
+                msg += f"\n… y {len(dup_vals) - MAX_VALS} valores más."
+            _set_text(self.auto_val_dup_text, msg)
+
+        # ════════════════════════════════════════════════════════════════════
+        # NIVEL 3 — Columnas duplicadas o posiblemente duplicadas
+        # ════════════════════════════════════════════════════════════════════
+        # Paso A: buscar columnas con valores exactamente iguales entre sí
+        exact_dup_pairs: list[tuple[str, str]] = []
+        already_paired: set[str] = set()
+
+        for i in range(len(cols)):
+            for j in range(i + 1, len(cols)):
+                col_a, col_b = cols[i], cols[j]
+                # Comparar ignorando el tipo (convertir a string para uniformidad)
+                series_a = df[col_a].astype(str).reset_index(drop=True)
+                series_b = df[col_b].astype(str).reset_index(drop=True)
+                if series_a.equals(series_b):
+                    exact_dup_pairs.append((col_a, col_b))
+                    already_paired.add(col_a)
+                    already_paired.add(col_b)
+
+        # Paso B: entre columnas sin pareja exacta, encontrar la que tiene
+        # más valores internos duplicados → "Posiblemente duplicada"
+        non_paired = [c for c in cols if c not in already_paired]
+        possibly_dup_col:  str | None = None
+        possibly_dup_count: int       = 0
+
+        for col in non_paired:
+            n_internal_dups = int(df[col].astype(str).duplicated(keep="first").sum())
+            if n_internal_dups > possibly_dup_count:
+                possibly_dup_count = n_internal_dups
+                possibly_dup_col   = col
+
+        # ── Construir mensaje ─────────────────────────────────────────────────
+        col_lines: list[str] = []
+
+        if not exact_dup_pairs and possibly_dup_col is None:
+            col_lines.append("✔ No se detectaron columnas duplicadas o sospechosas.")
+        else:
+            if exact_dup_pairs:
+                col_lines.append("📋 Columnas exactamente duplicadas:")
+                for col_a, col_b in exact_dup_pairs:
+                    col_lines.append(
+                        f'  • La columna "{col_b}" es una copia exacta de "{col_a}".')
+
+            if possibly_dup_col and possibly_dup_count > 0:
+                pct = round(possibly_dup_count / len(df) * 100, 1)
+                col_lines.append("")
+                col_lines.append("⚠ Columna posiblemente duplicada:")
+                col_lines.append(
+                    f'  • "{possibly_dup_col}" tiene {possibly_dup_count} valor(es) '
+                    f'repetidos internamente ({pct}% de sus filas).')
+                col_lines.append(
+                    "    (Es la columna con más repeticiones internas entre "
+                    "las que no tienen copia exacta.)")
+
+        _set_text(self.auto_col_dup_text, "\n".join(col_lines))
 
     def _delete_duplicates(self) -> None:
         """Elimina todas las filas duplicadas conservando la primera ocurrencia."""
