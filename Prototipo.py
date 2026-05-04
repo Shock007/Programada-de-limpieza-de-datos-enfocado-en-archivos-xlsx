@@ -201,85 +201,163 @@ class DataCleanerApp:
 
     def _build_auto_panel(self, parent: ttk.Frame) -> None:
         """
-        Construye el panel de Automatización con:
-          • Resumen de celdas vacías individuales (posición estilo Excel: A1, B3…)
-          • Resumen de columnas completamente vacías
-          • Botón para refrescar el análisis manualmente
+        Panel de Automatización con tres secciones:
+          1. Vacíos — detección y eliminación de celdas/columnas vacías
+          2. Duplicados — detección y eliminación de filas duplicadas
         """
-        panel = ttk.LabelFrame(parent, text="Automatización", padding=12)
-        panel.pack(fill=tk.BOTH, expand=True, padx=4, pady=4)
+        # Contenedor con scroll para que todo quepa en cualquier tamaño de ventana
+        canvas = tk.Canvas(parent, borderwidth=0, highlightthickness=0)
+        scrollbar = ttk.Scrollbar(parent, orient=tk.VERTICAL, command=canvas.yview)
+        canvas.configure(yscrollcommand=scrollbar.set)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
-        # ── Totales ─────────────────────────────────────────────────────────
-        totals_frame = ttk.Frame(panel)
-        totals_frame.pack(fill=tk.X, pady=(0, 8))
+        inner = ttk.Frame(canvas)
+        inner_id = canvas.create_window((0, 0), window=inner, anchor=tk.NW)
 
-        self._section_label(totals_frame, "Resumen general")
+        def _on_resize(event):
+            canvas.itemconfig(inner_id, width=event.width)
+        def _on_frame_configure(_event):
+            canvas.configure(scrollregion=canvas.bbox("all"))
+
+        canvas.bind("<Configure>", _on_resize)
+        inner.bind("<Configure>", _on_frame_configure)
+
+        # ════════════════════════════════════════════════════════════════════
+        # SECCIÓN 1 — VACÍOS
+        # ════════════════════════════════════════════════════════════════════
+        sec_empty = ttk.LabelFrame(inner, text="Celdas y columnas vacías", padding=10)
+        sec_empty.pack(fill=tk.X, padx=6, pady=(8, 4))
+
+        # ── Totales ──────────────────────────────────────────────────────────
+        self._section_label(sec_empty, "Resumen general")
 
         self.lbl_total_empty_cells = ttk.Label(
-            totals_frame, text="Celdas vacías: —",
+            sec_empty, text="Celdas vacías: —",
             foreground="#c0392b", font=("TkDefaultFont", 9, "bold"))
         self.lbl_total_empty_cells.pack(anchor=tk.W, pady=1)
 
         self.lbl_total_empty_cols = ttk.Label(
-            totals_frame, text="Columnas vacías: —",
+            sec_empty, text="Columnas vacías: —",
             foreground="#8e44ad", font=("TkDefaultFont", 9, "bold"))
         self.lbl_total_empty_cols.pack(anchor=tk.W, pady=1)
 
-        ttk.Separator(panel, orient=tk.HORIZONTAL).pack(fill=tk.X, pady=8)
+        ttk.Separator(sec_empty, orient=tk.HORIZONTAL).pack(fill=tk.X, pady=6)
 
-        # ── Detalle de celdas vacías ─────────────────────────────────────────
-        self._section_label(panel, "Celdas vacías por posición")
+        # ── Detalle celdas vacías ─────────────────────────────────────────────
+        self._section_label(sec_empty, "Celdas vacías por posición")
 
-        cell_frame = ttk.Frame(panel)
-        cell_frame.pack(fill=tk.BOTH, expand=True, pady=(4, 8))
+        cell_frame = ttk.Frame(sec_empty)
+        cell_frame.pack(fill=tk.X, pady=(2, 6))
         cell_frame.grid_rowconfigure(0, weight=1)
         cell_frame.grid_columnconfigure(0, weight=1)
 
         cell_vsb = ttk.Scrollbar(cell_frame, orient=tk.VERTICAL)
         self.auto_cell_text = tk.Text(
-            cell_frame, height=6, wrap=tk.WORD, state=tk.DISABLED,
+            cell_frame, height=5, wrap=tk.WORD, state=tk.DISABLED,
             relief=tk.FLAT, bg="#f8f9fa", font=("TkDefaultFont", 9),
             yscrollcommand=cell_vsb.set)
         cell_vsb.config(command=self.auto_cell_text.yview)
         self.auto_cell_text.grid(row=0, column=0, sticky=tk.NSEW)
         cell_vsb.grid(row=0, column=1, sticky=tk.NS)
 
-        ttk.Separator(panel, orient=tk.HORIZONTAL).pack(fill=tk.X, pady=8)
+        # Botón eliminar filas con celdas vacías
+        self.btn_del_empty_rows = ttk.Button(
+            sec_empty, text="🗑 Eliminar filas con celdas vacías",
+            command=self._delete_rows_with_empty_cells, state=tk.DISABLED)
+        self.btn_del_empty_rows.pack(fill=tk.X, pady=(2, 6))
 
-        # ── Detalle de columnas vacías ───────────────────────────────────────
-        self._section_label(panel, "Columnas completamente vacías")
+        ttk.Separator(sec_empty, orient=tk.HORIZONTAL).pack(fill=tk.X, pady=6)
 
-        col_frame = ttk.Frame(panel)
-        col_frame.pack(fill=tk.BOTH, expand=True, pady=(4, 8))
+        # ── Detalle columnas vacías ───────────────────────────────────────────
+        self._section_label(sec_empty, "Columnas completamente vacías")
+
+        col_frame = ttk.Frame(sec_empty)
+        col_frame.pack(fill=tk.X, pady=(2, 6))
         col_frame.grid_rowconfigure(0, weight=1)
         col_frame.grid_columnconfigure(0, weight=1)
 
         col_vsb = ttk.Scrollbar(col_frame, orient=tk.VERTICAL)
         self.auto_col_text = tk.Text(
-            col_frame, height=5, wrap=tk.WORD, state=tk.DISABLED,
+            col_frame, height=4, wrap=tk.WORD, state=tk.DISABLED,
             relief=tk.FLAT, bg="#f8f9fa", font=("TkDefaultFont", 9),
             yscrollcommand=col_vsb.set)
         col_vsb.config(command=self.auto_col_text.yview)
         self.auto_col_text.grid(row=0, column=0, sticky=tk.NSEW)
         col_vsb.grid(row=0, column=1, sticky=tk.NS)
 
-        # ── Botón de análisis ────────────────────────────────────────────────
+        # Botón eliminar columnas vacías
+        self.btn_del_empty_cols = ttk.Button(
+            sec_empty, text="🗑 Eliminar columnas vacías",
+            command=self._delete_empty_columns, state=tk.DISABLED)
+        self.btn_del_empty_cols.pack(fill=tk.X, pady=(2, 6))
+
+        ttk.Separator(sec_empty, orient=tk.HORIZONTAL).pack(fill=tk.X, pady=6)
+
+        # Botón analizar vacíos
         ttk.Button(
-            panel, text="🔍 Analizar vacíos",
+            sec_empty, text="🔍 Analizar vacíos",
             command=self._refresh_auto_panel
-        ).pack(fill=tk.X, pady=(4, 0))
+        ).pack(fill=tk.X, pady=(0, 2))
+
+        # ════════════════════════════════════════════════════════════════════
+        # SECCIÓN 2 — DUPLICADOS
+        # ════════════════════════════════════════════════════════════════════
+        sec_dup = ttk.LabelFrame(inner, text="Registros duplicados", padding=10)
+        sec_dup.pack(fill=tk.X, padx=6, pady=(4, 8))
+
+        # ── Totales ──────────────────────────────────────────────────────────
+        self._section_label(sec_dup, "Resumen general")
+
+        self.lbl_total_dups = ttk.Label(
+            sec_dup, text="Filas duplicadas: —",
+            foreground="#e67e22", font=("TkDefaultFont", 9, "bold"))
+        self.lbl_total_dups.pack(anchor=tk.W, pady=1)
+
+        self.lbl_unique_rows = ttk.Label(
+            sec_dup, text="Filas únicas: —",
+            foreground="#27ae60", font=("TkDefaultFont", 9, "bold"))
+        self.lbl_unique_rows.pack(anchor=tk.W, pady=1)
+
+        ttk.Separator(sec_dup, orient=tk.HORIZONTAL).pack(fill=tk.X, pady=6)
+
+        # ── Detalle duplicados ────────────────────────────────────────────────
+        self._section_label(sec_dup, "Posición de filas duplicadas")
+
+        dup_frame = ttk.Frame(sec_dup)
+        dup_frame.pack(fill=tk.X, pady=(2, 6))
+        dup_frame.grid_rowconfigure(0, weight=1)
+        dup_frame.grid_columnconfigure(0, weight=1)
+
+        dup_vsb = ttk.Scrollbar(dup_frame, orient=tk.VERTICAL)
+        self.auto_dup_text = tk.Text(
+            dup_frame, height=5, wrap=tk.WORD, state=tk.DISABLED,
+            relief=tk.FLAT, bg="#fff8f0", font=("TkDefaultFont", 9),
+            yscrollcommand=dup_vsb.set)
+        dup_vsb.config(command=self.auto_dup_text.yview)
+        self.auto_dup_text.grid(row=0, column=0, sticky=tk.NSEW)
+        dup_vsb.grid(row=0, column=1, sticky=tk.NS)
+
+        # Botones duplicados
+        self.btn_del_dups = ttk.Button(
+            sec_dup, text="🗑 Eliminar filas duplicadas",
+            command=self._delete_duplicates, state=tk.DISABLED)
+        self.btn_del_dups.pack(fill=tk.X, pady=(2, 6))
+
+        ttk.Separator(sec_dup, orient=tk.HORIZONTAL).pack(fill=tk.X, pady=6)
+
+        ttk.Button(
+            sec_dup, text="🔍 Analizar duplicados",
+            command=self._refresh_duplicates
+        ).pack(fill=tk.X, pady=(0, 2))
 
     def _refresh_auto_panel(self) -> None:
         """
         Analiza el DataFrame en busca de celdas y columnas vacías y
         actualiza los widgets del panel de Automatización.
-
-        Notación de posición:  letra(s) de columna Excel + número de fila 1-based
-        Ejemplo:  columna índice 0 → A,  fila DataFrame índice 3 → fila 4 en Excel.
         """
         from openpyxl.utils import get_column_letter
 
-        # ── Texto por defecto cuando no hay archivo ──────────────────────────
         def _set_text(widget: tk.Text, msg: str) -> None:
             widget.config(state=tk.NORMAL)
             widget.delete("1.0", tk.END)
@@ -291,13 +369,13 @@ class DataCleanerApp:
             _set_text(self.auto_col_text,  "Carga un archivo para analizar.")
             self.lbl_total_empty_cells.config(text="Celdas vacías: —")
             self.lbl_total_empty_cols.config(text="Columnas vacías: —")
+            self.btn_del_empty_rows.config(state=tk.DISABLED)
+            self.btn_del_empty_cols.config(state=tk.DISABLED)
             return
 
         df   = self.dataframe
         cols = list(df.columns)
 
-        # ── Detección de vacíos ──────────────────────────────────────────────
-        # Una celda está vacía si es NaN o es string de solo espacios
         def _is_empty(val) -> bool:
             if pd.isna(val):
                 return True
@@ -306,45 +384,47 @@ class DataCleanerApp:
             return False
 
         # Columnas completamente vacías
-        empty_cols = [
-            col for col in cols
-            if df[col].apply(_is_empty).all()
-        ]
+        empty_cols = [col for col in cols if df[col].apply(_is_empty).all()]
 
-        # Celdas vacías individuales (en columnas que NO son completamente vacías)
+        # Celdas vacías individuales
         empty_cells: list[str] = []
         for col_idx, col in enumerate(cols):
-            col_letter = get_column_letter(col_idx + 1)   # 1-based → A, B, C…
+            col_letter = get_column_letter(col_idx + 1)
             for df_row_idx in df.index:
-                val = df.at[df_row_idx, col]
-                if _is_empty(val):
-                    # Fila en notación Excel: encabezado es fila 1, datos desde fila 2
+                if _is_empty(df.at[df_row_idx, col]):
                     excel_row = int(df_row_idx) + 2
                     empty_cells.append(f"{col_letter}{excel_row}")
 
+        # Filas que tienen AL MENOS una celda vacía
+        rows_with_empty = df[
+            df.apply(lambda row: row.apply(_is_empty).any(), axis=1)
+        ].index.tolist()
+
         # ── Actualizar totales ───────────────────────────────────────────────
-        self.lbl_total_empty_cells.config(
-            text=f"Celdas vacías: {len(empty_cells)}")
-        self.lbl_total_empty_cols.config(
-            text=f"Columnas vacías: {len(empty_cols)}")
+        self.lbl_total_empty_cells.config(text=f"Celdas vacías: {len(empty_cells)}")
+        self.lbl_total_empty_cols.config(text=f"Columnas vacías: {len(empty_cols)}")
+
+        # Habilitar / deshabilitar botones de eliminación
+        self.btn_del_empty_rows.config(
+            state=tk.NORMAL if rows_with_empty else tk.DISABLED)
+        self.btn_del_empty_cols.config(
+            state=tk.NORMAL if empty_cols else tk.DISABLED)
 
         # ── Texto de celdas vacías ───────────────────────────────────────────
         if not empty_cells:
             cell_msg = "✔ No se encontraron celdas vacías en el archivo."
         else:
-            # Agrupar por columna para un mensaje más legible
             from collections import defaultdict
             by_col: dict[str, list[str]] = defaultdict(list)
             for ref in empty_cells:
-                # Separar letra(s) de número
                 letter = "".join(c for c in ref if c.isalpha())
                 by_col[letter].append(ref)
 
             lines = []
             for letter, refs in by_col.items():
-                col_idx   = ord(letter) - ord("A") if len(letter) == 1 \
-                            else (ord(letter[0]) - ord("A") + 1) * 26 + (ord(letter[1]) - ord("A"))
-                col_name  = cols[col_idx] if col_idx < len(cols) else letter
+                col_idx  = ord(letter) - ord("A") if len(letter) == 1 \
+                           else (ord(letter[0]) - ord("A") + 1) * 26 + (ord(letter[1]) - ord("A"))
+                col_name = cols[col_idx] if col_idx < len(cols) else letter
                 positions = ", ".join(refs)
                 lines.append(
                     f'• Columna "{col_name}": '
@@ -359,13 +439,169 @@ class DataCleanerApp:
         if not empty_cols:
             col_msg = "✔ Todas las columnas contienen al menos un dato."
         else:
-            lines = [
-                f'• La columna "{col}" no contiene ningún dato.'
-                for col in empty_cols
-            ]
-            col_msg = "\n".join(lines)
+            col_msg = "\n".join(
+                f'• La columna "{col}" no contiene ningún dato.' for col in empty_cols
+            )
 
         _set_text(self.auto_col_text, col_msg)
+
+    # ── Eliminación de vacíos ─────────────────────────────────────────────────
+
+    def _delete_empty_columns(self) -> None:
+        """Elimina del DataFrame todas las columnas donde TODOS los valores son vacíos."""
+        if self.dataframe is None:
+            return
+
+        def _is_empty(val) -> bool:
+            if pd.isna(val):
+                return True
+            return isinstance(val, str) and val.strip() == ""
+
+        cols_to_drop = [
+            col for col in self.dataframe.columns
+            if self.dataframe[col].apply(_is_empty).all()
+        ]
+
+        if not cols_to_drop:
+            messagebox.showinfo("Sin cambios", "No hay columnas completamente vacías.")
+            return
+
+        names = ", ".join(f'"{c}"' for c in cols_to_drop)
+        confirm = messagebox.askyesno(
+            "Confirmar eliminación",
+            f"Se eliminarán {len(cols_to_drop)} columna(s) vacía(s):\n{names}\n\n"
+            "¿Deseas continuar?"
+        )
+        if not confirm:
+            return
+
+        self.dataframe.drop(columns=cols_to_drop, inplace=True)
+        # Limpiar formatos de celdas huérfanas
+        self.cell_formats  = {}
+        self.edited_cells  = {}
+        self.selected_cell = None
+        self.selected_column = None
+
+        self._display_data()
+        self._refresh_auto_panel()
+        messagebox.showinfo(
+            "Eliminadas",
+            f"{len(cols_to_drop)} columna(s) vacía(s) eliminadas correctamente.")
+
+    def _delete_rows_with_empty_cells(self) -> None:
+        """Elimina todas las filas que contengan AL MENOS una celda vacía."""
+        if self.dataframe is None:
+            return
+
+        def _is_empty(val) -> bool:
+            if pd.isna(val):
+                return True
+            return isinstance(val, str) and val.strip() == ""
+
+        mask = self.dataframe.apply(lambda row: row.apply(_is_empty).any(), axis=1)
+        n_rows = int(mask.sum())
+
+        if n_rows == 0:
+            messagebox.showinfo("Sin cambios", "No hay filas con celdas vacías.")
+            return
+
+        confirm = messagebox.askyesno(
+            "Confirmar eliminación",
+            f"Se eliminarán {n_rows} fila(s) que contienen al menos una celda vacía.\n\n"
+            "¿Deseas continuar?"
+        )
+        if not confirm:
+            return
+
+        self.dataframe = self.dataframe[~mask].reset_index(drop=True)
+        self.cell_formats    = {}
+        self.edited_cells    = {}
+        self.selected_cell   = None
+        self.selected_column = None
+
+        self._display_data()
+        self._refresh_auto_panel()
+        messagebox.showinfo(
+            "Eliminadas",
+            f"{n_rows} fila(s) con celdas vacías eliminadas correctamente.")
+
+    # ── Duplicados ────────────────────────────────────────────────────────────
+
+    def _refresh_duplicates(self) -> None:
+        """Detecta filas duplicadas y actualiza el cuadro de texto de duplicados."""
+        def _set_text(widget: tk.Text, msg: str) -> None:
+            widget.config(state=tk.NORMAL)
+            widget.delete("1.0", tk.END)
+            widget.insert(tk.END, msg)
+            widget.config(state=tk.DISABLED)
+
+        if self.dataframe is None:
+            _set_text(self.auto_dup_text, "Carga un archivo para analizar.")
+            self.lbl_total_dups.config(text="Filas duplicadas: —")
+            self.lbl_unique_rows.config(text="Filas únicas: —")
+            self.btn_del_dups.config(state=tk.DISABLED)
+            return
+
+        df = self.dataframe
+
+        # Una fila es duplicada si existe OTRA fila ANTERIOR idéntica
+        dup_mask   = df.duplicated(keep="first")
+        dup_indices = df.index[dup_mask].tolist()
+        n_dups     = len(dup_indices)
+        n_unique   = len(df) - n_dups
+
+        self.lbl_total_dups.config(text=f"Filas duplicadas: {n_dups}")
+        self.lbl_unique_rows.config(text=f"Filas únicas: {n_unique}")
+        self.btn_del_dups.config(state=tk.NORMAL if n_dups > 0 else tk.DISABLED)
+
+        if n_dups == 0:
+            _set_text(self.auto_dup_text,
+                      "✔ No se encontraron filas duplicadas en el archivo.")
+            return
+
+        # Mostrar las primeras 200 referencias para no saturar la UI
+        MAX_SHOW = 200
+        refs = [f"Fila {int(i) + 2}" for i in dup_indices[:MAX_SHOW]]
+        msg  = "Las siguientes filas son duplicadas de otra anterior:\n"
+        msg += ", ".join(refs)
+        if n_dups > MAX_SHOW:
+            msg += f"\n… y {n_dups - MAX_SHOW} más."
+
+        _set_text(self.auto_dup_text, msg)
+
+    def _delete_duplicates(self) -> None:
+        """Elimina todas las filas duplicadas conservando la primera ocurrencia."""
+        if self.dataframe is None:
+            return
+
+        dup_mask = self.dataframe.duplicated(keep="first")
+        n_dups   = int(dup_mask.sum())
+
+        if n_dups == 0:
+            messagebox.showinfo("Sin cambios", "No hay filas duplicadas.")
+            return
+
+        confirm = messagebox.askyesno(
+            "Confirmar eliminación",
+            f"Se eliminarán {n_dups} fila(s) duplicadas, "
+            "conservando la primera ocurrencia de cada registro.\n\n"
+            "¿Deseas continuar?"
+        )
+        if not confirm:
+            return
+
+        self.dataframe = self.dataframe[~dup_mask].reset_index(drop=True)
+        self.cell_formats    = {}
+        self.edited_cells    = {}
+        self.selected_cell   = None
+        self.selected_column = None
+
+        self._display_data()
+        self._refresh_duplicates()
+        self._refresh_auto_panel()
+        messagebox.showinfo(
+            "Eliminadas",
+            f"{n_dups} fila(s) duplicada(s) eliminadas correctamente.")
 
     def _cast_value(self, col_index: int, raw: str):
         """
