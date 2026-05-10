@@ -1,4 +1,5 @@
 import tkinter as tk
+from tkinterdnd2 import DND_FILES, TkinterDnD
 from tkinter import messagebox, filedialog
 from tkinter import ttk
 import pandas as pd
@@ -212,6 +213,26 @@ class DataCleanerApp:
         self.file_label = ttk.Label(bar, text="Ningún archivo cargado",
                                     style="Toolbar.TLabel")
         self.file_label.pack(side=tk.LEFT, padx=8)
+                # ─────────────────────────────────────────────
+        # Zona Drag & Drop
+        # ─────────────────────────────────────────────
+        self.drop_label = tk.Label(
+            bar,
+            text="📂 Arrastra un archivo XLSX aquí",
+            bg="#D6EAF8",
+            fg="#1B4F72",
+            relief=tk.GROOVE,
+            bd=2,
+            padx=15,
+            pady=8,
+            font=("TkDefaultFont", 9, "bold")
+        )
+
+        self.drop_label.pack(side=tk.RIGHT, padx=10)
+
+        # Registrar zona de arrastre
+        self.drop_label.drop_target_register(DND_FILES)
+        self.drop_label.dnd_bind("<<Drop>>", self._drop_file)
 
     # ── Área principal ────────────────────────────────────────────────────────
 
@@ -781,6 +802,50 @@ class DataCleanerApp:
     #  CARGA Y VISUALIZACIÓN
     # ══════════════════════════════════════════════════════════════════════════
 
+    def _drop_file(self, event) -> None:
+        """Carga un archivo arrastrado a la interfaz."""
+        try:
+            path = event.data.strip("{}")
+
+            # Validar extensión
+            if not path.lower().endswith(".xlsx"):
+                self._set_status(
+                    "Solo se permiten archivos XLSX.",
+                    "warn"
+                )
+                return
+
+            self.current_file = path
+            self.dataframe = pd.read_excel(path)
+
+            self._reset_selection()
+            self._display_data()
+
+            self.file_label.config(
+                text=f"📄  {os.path.basename(path)}"
+            )
+
+            self.save_btn.config(state=tk.NORMAL)
+
+            self._refresh_auto_panel()
+
+            self._set_status(
+                f"Archivo '{os.path.basename(path)}' cargado correctamente.",
+                "ok"
+            )
+
+        except Exception as exc:
+            messagebox.showerror(
+                "Error al cargar archivo",
+                str(exc)
+            )
+
+            self._set_status(
+                "Error al cargar el archivo arrastrado.",
+                "error",
+                autoclean=False
+            )
+
     def upload_file(self) -> None:
         path = filedialog.askopenfilename(
             title="Seleccionar archivo XLSX",
@@ -1030,6 +1095,6 @@ class DataCleanerApp:
 
 # ──────────────────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
-    root = tk.Tk()
+    root = TkinterDnD.Tk()
     app  = DataCleanerApp(root)
     root.mainloop()
